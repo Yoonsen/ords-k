@@ -208,6 +208,47 @@ tbody tr:nth-child(even) {
   background: #f8fafc;
 }
 
+.table-sort {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.table-sort span {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.table-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.field.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.field.inline input {
+  max-width: 120px;
+}
+
+.table-meta {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
 .summary-row {
   display: flex;
   flex-wrap: wrap;

@@ -208,6 +208,10 @@ function App() {
   const [evaluateData, setEvaluateData] = useState<Record<string, Record<string, number>> | null>(
     null,
   )
+  const [sortKey, setSortKey] = useState<string>('total')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [totalThreshold, setTotalThreshold] = useState<number>(0)
+  const [evaluateDurationMs, setEvaluateDurationMs] = useState<number | null>(null)
 
   const wordbagJson = useMemo(() => {
     const obj: Record<string, string[]> = {}
@@ -374,7 +378,9 @@ function App() {
     setEvaluateStatus('Evaluerer korpus...')
     setEvaluateRaw('')
     setEvaluateData(null)
+    setEvaluateDurationMs(null)
     try {
+      const start = performance.now()
       const response = await fetch('https://api.nb.no/dhlab/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -384,8 +390,10 @@ function App() {
         throw new Error(`HTTP ${response.status}`)
       }
       const data = (await response.json()) as Record<string, Record<string, number>>
+      const duration = performance.now() - start
       setEvaluateRaw(JSON.stringify(data, null, 2))
       setEvaluateData(data)
+      setEvaluateDurationMs(duration)
       setEvaluateStatus('Evaluering fullført.')
     } catch (error) {
       setEvaluateStatus('Feil ved evaluering.')
@@ -401,8 +409,59 @@ function App() {
       Object.keys(topics || {}).forEach((key) => topicSet.add(key))
     })
     const topics = Array.from(topicSet).sort()
-    return { rows, topics }
-  }, [evaluateData])
+    const rowsWithTotals = rows.map(([docId, topics]) => {
+      const total = Object.values(topics || {}).reduce(
+        (sum, value) => sum + (typeof value === 'number' ? value : 0),
+        0,
+      )
+      return { docId, topics, total }
+    })
+
+    const metaLookup = corpusMetaById
+    const sorted = [...rowsWithTotals].sort((a, b) => {
+      const direction = sortDir === 'asc' ? 1 : -1
+      if (sortKey === 'dhlabid') {
+        return direction * a.docId.localeCompare(b.docId, 'nb')
+      }
+      if (sortKey === 'total') {
+        return direction * (a.total - b.total)
+      }
+      if (sortKey === 'title' || sortKey === 'authors') {
+        const aValue = metaLookup[a.docId]?.[sortKey] ?? ''
+        const bValue = metaLookup[b.docId]?.[sortKey] ?? ''
+        return direction * aValue.localeCompare(bValue, 'nb')
+      }
+      if (sortKey === 'year') {
+        const aValue = Number(metaLookup[a.docId]?.year ?? 0)
+        const bValue = Number(metaLookup[b.docId]?.year ?? 0)
+        return direction * (aValue - bValue)
+      }
+      if (topics.includes(sortKey)) {
+        const aValue = a.topics?.[sortKey] ?? 0
+        const bValue = b.topics?.[sortKey] ?? 0
+        return direction * (aValue - bValue)
+      }
+      return 0
+    })
+
+    const filtered =
+      totalThreshold > 0
+        ? sorted.filter((row) => row.total >= totalThreshold)
+        : sorted
+
+    return { rows: filtered, topics, totalRows: rowsWithTotals.length }
+  }, [evaluateData, corpusMetaById, sortKey, sortDir, totalThreshold])
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDir(key === 'title' || key === 'authors' || key === 'dhlabid' ? 'asc' : 'desc')
+  }
+
+  const sortLabel = sortDir === 'asc' ? '↑' : '↓'
 
   return (
     <div className="app">
@@ -569,34 +628,106 @@ function App() {
           </div>
         )}
         {evaluationTable ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Dhlab ID</th>
-                  {evaluationTable.topics.map((topic) => (
-                    <th key={topic}>{topic}</th>
-                  ))}
-                  <th>Tittel</th>
-                  <th>Forfatter</th>
-                  <th>År</th>
-                </tr>
-              </thead>
-              <tbody>
-                {evaluationTable.rows.map(([docId, topics]) => (
-                  <tr key={docId}>
-                    <td>{docId}</td>
+          <>
+            <div className="table-controls">
+              <label className="field inline">
+                <span>Min. sum</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={totalThreshold}
+                  onChange={(event) => setTotalThreshold(Number(event.target.value) || 0)}
+                />
+              </label>
+              <div className="table-meta">
+                Viser {evaluationTable.rows.length} av {evaluationTable.totalRows} rader
+              </div>
+              {evaluateDurationMs !== null && (
+                <div className="table-meta">
+                  Fant {evaluationTable.rows.length} rader på{' '}
+                  {(evaluateDurationMs / 1000).toFixed(2)} sekunder
+                </div>
+              )}
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <button
+                        type="button"
+                        className="table-sort"
+                        onClick={() => handleSort('dhlabid')}
+                      >
+                        Dhlab ID {sortKey === 'dhlabid' && <span>{sortLabel}</span>}
+                      </button>
+                    </th>
                     {evaluationTable.topics.map((topic) => (
-                      <td key={`${docId}-${topic}`}>{topics?.[topic] ?? 0}</td>
+                      <th key={topic}>
+                        <button
+                          type="button"
+                          className="table-sort"
+                          onClick={() => handleSort(topic)}
+                        >
+                          {topic} {sortKey === topic && <span>{sortLabel}</span>}
+                        </button>
+                      </th>
                     ))}
-                    <td>{corpusMetaById[docId]?.title ?? '-'}</td>
-                    <td>{corpusMetaById[docId]?.authors ?? '-'}</td>
-                    <td>{corpusMetaById[docId]?.year ?? '-'}</td>
+                    <th>
+                      <button
+                        type="button"
+                        className="table-sort"
+                        onClick={() => handleSort('total')}
+                      >
+                        Sum {sortKey === 'total' && <span>{sortLabel}</span>}
+                      </button>
+                    </th>
+                    <th>
+                      <button
+                        type="button"
+                        className="table-sort"
+                        onClick={() => handleSort('title')}
+                      >
+                        Tittel {sortKey === 'title' && <span>{sortLabel}</span>}
+                      </button>
+                    </th>
+                    <th>
+                      <button
+                        type="button"
+                        className="table-sort"
+                        onClick={() => handleSort('authors')}
+                      >
+                        Forfatter {sortKey === 'authors' && <span>{sortLabel}</span>}
+                      </button>
+                    </th>
+                    <th>
+                      <button
+                        type="button"
+                        className="table-sort"
+                        onClick={() => handleSort('year')}
+                      >
+                        År {sortKey === 'year' && <span>{sortLabel}</span>}
+                      </button>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {evaluationTable.rows.map((row) => (
+                    <tr key={row.docId}>
+                      <td>{row.docId}</td>
+                      {evaluationTable.topics.map((topic) => (
+                        <td key={`${row.docId}-${topic}`}>{row.topics?.[topic] ?? 0}</td>
+                      ))}
+                      <td>{row.total}</td>
+                      <td>{corpusMetaById[row.docId]?.title ?? '-'}</td>
+                      <td>{corpusMetaById[row.docId]?.authors ?? '-'}</td>
+                      <td>{corpusMetaById[row.docId]?.year ?? '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : (
           <div className="placeholder">Resultattabell kommer</div>
         )}
