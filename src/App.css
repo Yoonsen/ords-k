@@ -157,6 +157,57 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.details {
+  margin-top: 1rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 0.75rem;
+}
+
+.details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.details pre {
+  margin: 0.75rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.table-wrap {
+  margin-top: 1rem;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+thead {
+  background: #f1f5f9;
+}
+
+th,
+td {
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
 .summary-row {
   display: flex;
   flex-wrap: wrap;
@@ -179,9 +230,6 @@ button:disabled {
 }
 
 .list-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 0.75rem 1rem;
@@ -198,6 +246,24 @@ button:disabled {
   background: #ef4444;
 }
 
+.wordbag-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.wordbag-meta {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.wordbag-index {
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .empty {
   padding: 1rem;
   border-radius: 10px;
@@ -209,5 +275,10 @@ button:disabled {
 @media (min-width: 768px) {
   .grid {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .wordbag-row {
+    grid-template-columns: 120px 1fr 2fr auto;
+    align-items: end;
   }
 }
