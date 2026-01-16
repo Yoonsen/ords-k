@@ -314,6 +314,19 @@ tbody tr:nth-child(even) {
   font-weight: 600;
 }
 
+.legend-button {
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.legend-button.is-hidden {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
 .summary-row {
   display: flex;
   flex-wrap: wrap;

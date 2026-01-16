@@ -362,6 +362,7 @@ function App() {
   const [aggregatePercent, setAggregatePercent] = useState<boolean>(false)
   const [pageSize, setPageSize] = useState<number>(500)
   const [pageIndex, setPageIndex] = useState<number>(0)
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
 
   const wordbagJson = useMemo(() => {
     const obj: Record<string, string[]> = {}
@@ -589,10 +590,7 @@ function App() {
     const getYearLabel = (docId: string) => {
       const yearValue = Number(metaLookup[docId]?.year)
       const hasYear = !Number.isNaN(yearValue) && Number.isFinite(yearValue)
-      if (!hasYear) {
-        yearBins.set('Ukjent', { sortValue: -1 })
-        return 'Ukjent'
-      }
+      if (!hasYear) return null
       const start = Math.floor(yearValue / binSize) * binSize
       const label = binSize > 1 ? `${start}-${start + binSize - 1}` : `${start}`
       yearBins.set(label, { sortValue: start })
@@ -610,6 +608,7 @@ function App() {
 
       rowsWithTotals.forEach((row) => {
         const label = getYearLabel(row.docId)
+        if (!label) return
         Object.entries(row.topics || {}).forEach(([topic, value]) => {
           const currentRow = rowMap.get(topic)
           if (!currentRow) return
@@ -735,6 +734,10 @@ function App() {
   useEffect(() => {
     setPageIndex(0)
   }, [evaluateData, totalThreshold, sortKey, sortDir, aggregateByYear, yearBinSize, aggregatePercent])
+
+  useEffect(() => {
+    setHiddenSeries(new Set())
+  }, [evaluateData, aggregateByYear, yearBinSize, aggregatePercent])
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -1221,9 +1224,10 @@ function App() {
               <div className="chart-card">
                 <div className="chart-header">
                   <strong>
-                    {aggregatePercent ? 'Andel per år (topp 5 vektorer)' : 'Sum per år (topp 5 vektorer)'}
+                    {aggregatePercent
+                      ? 'Andel per år (topp 5 vektorer)'
+                      : 'Sum per år (topp 5 vektorer)'}
                   </strong>
-                  <span>{chartSeries.years.join(' · ')}</span>
                 </div>
                 <svg viewBox="0 0 900 300" role="img">
                   <rect x="50" y="20" width="820" height="220" fill="#f8fafc" />
@@ -1238,7 +1242,9 @@ function App() {
                       </g>
                     )
                   })}
-                  {chartSeries.series.map((serie, idx) => {
+                  {chartSeries.series
+                    .filter((serie) => !hiddenSeries.has(serie.id))
+                    .map((serie, idx) => {
                     const points = serie.values.map((value, index) => {
                       const x = 50 + (820 / Math.max(1, chartSeries.years.length - 1)) * index
                       const y = 240 - (value / chartSeries.maxValue) * 200
@@ -1259,10 +1265,27 @@ function App() {
                 <div className="chart-legend">
                   {chartSeries.series.map((serie, idx) => {
                     const colors = ['#2563eb', '#16a34a', '#f97316', '#a855f7', '#0ea5e9']
+                    const isHidden = hiddenSeries.has(serie.id)
                     return (
-                      <span key={serie.id} style={{ color: colors[idx % colors.length] }}>
+                      <button
+                        key={serie.id}
+                        type="button"
+                        className={`legend-button ${isHidden ? 'is-hidden' : ''}`}
+                        style={{ color: colors[idx % colors.length] }}
+                        onClick={() => {
+                          setHiddenSeries((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(serie.id)) {
+                              next.delete(serie.id)
+                            } else {
+                              next.add(serie.id)
+                            }
+                            return next
+                          })
+                        }}
+                      >
                         {serie.id}
-                      </span>
+                      </button>
                     )
                   })}
                 </div>
