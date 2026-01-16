@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 type Wordbag = {
@@ -51,6 +51,137 @@ const parseCorpusText = (text: string) => {
 
   const unique = Array.from(new Set(urns)).slice(0, MAX_CORPUS)
   return unique
+}
+
+const parseDelimitedLine = (line: string, delimiter: string) => {
+  const values: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i]
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+    if (char === delimiter && !inQuotes) {
+      values.push(current.trim())
+      current = ''
+      continue
+    }
+    current += char
+  }
+  values.push(current.trim())
+  return values
+}
+
+const detectDelimiter = (line: string) => {
+  const candidates = [',', ';', '\t']
+  let best = ','
+  let bestCount = 0
+  candidates.forEach((delimiter) => {
+    const count = line.split(delimiter).length
+    if (count > bestCount) {
+      best = delimiter
+      bestCount = count
+    }
+  })
+  return best
+}
+
+const parseCorpusCsv = (text: string) => {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0)
+  if (!lines.length) return null
+
+  const delimiter = detectDelimiter(lines[0])
+  const header = parseDelimitedLine(lines[0], delimiter).map((value) => value.toLowerCase())
+  const indexOf = (name: string) => header.findIndex((value) => value === name)
+  const indexOfAny = (names: string[]) =>
+    names.reduce((found, name) => (found === -1 ? indexOf(name) : found), -1)
+
+  const urnIndex = indexOfAny(['urn'])
+  let dhlabidIndex = indexOfAny(['dhlabid', 'dhlab_id'])
+  const titleIndex = indexOf('title')
+  const authorsIndex = indexOf('authors')
+  const yearIndex = indexOf('year')
+
+  if (dhlabidIndex === -1) {
+    const indexCandidates = ['', 'index', 'unnamed: 0']
+    dhlabidIndex = indexOfAny(indexCandidates)
+  }
+
+  if (urnIndex === -1 && dhlabidIndex === -1) return null
+
+  const urns: string[] = []
+  const metaById: Record<string, CorpusMeta> = {}
+  const metaByUrn: Record<string, CorpusMeta> = {}
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const row = parseDelimitedLine(lines[i], delimiter)
+    if (!row.length) continue
+    const urn = row[urnIndex] ?? ''
+    const dhlabid = row[dhlabidIndex] ?? ''
+    const title = row[titleIndex] ?? ''
+    const authors = row[authorsIndex] ?? ''
+    const year = row[yearIndex] ?? ''
+
+    const cleanedUrn = urn.trim()
+    const cleanedId = dhlabid.trim()
+
+    if (cleanedUrn) {
+      urns.push(cleanedUrn)
+      metaByUrn[cleanedUrn] = {
+        urn: cleanedUrn,
+        title: title?.trim() || undefined,
+        authors: authors?.trim() || undefined,
+        year: year?.trim() || undefined,
+        dhlabid: cleanedId || undefined,
+      }
+    }
+
+    if (cleanedId) {
+      metaById[cleanedId] = {
+        dhlabid: cleanedId,
+        urn: cleanedUrn || undefined,
+        title: title?.trim() || undefined,
+        authors: authors?.trim() || undefined,
+        year: year?.trim() || undefined,
+      }
+    }
+  }
+
+  return {
+    urns: Array.from(new Set(urns)).slice(0, MAX_CORPUS),
+    metaById,
+    metaByUrn,
+  }
+}
+
+const escapeCsvValue = (value: string | number | null | undefined) => {
+  const text = value === null || value === undefined ? '' : String(value)
+  if (text.includes('"')) {
+    return `"${text.replace(/"/g, '""')}"`
+  }
+  if (/[,\n]/.test(text)) {
+    return `"${text}"`
+  }
+  return text
+}
+
+const downloadCsv = (filename: string, rows: Array<Array<string | number>>) => {
+  const content = rows.map((row) => row.map(escapeCsvValue).join(',')).join('\n')
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 const parseBuildQuery = (input: string) => {
@@ -213,6 +344,7 @@ function App() {
   const [corpusApiStatus, setCorpusApiStatus] = useState<string>('')
   const [corpusApiRaw, setCorpusApiRaw] = useState<string>('')
   const [corpusMetaById, setCorpusMetaById] = useState<Record<string, CorpusMeta>>({})
+  const [corpusMetaByUrn, setCorpusMetaByUrn] = useState<Record<string, CorpusMeta>>({})
 
   const [wordbags, setWordbags] = useState<Wordbag[]>([])
   const [wordbagMessage, setWordbagMessage] = useState<string>('')
@@ -228,6 +360,8 @@ function App() {
   const [aggregateByYear, setAggregateByYear] = useState<boolean>(false)
   const [yearBinSize, setYearBinSize] = useState<number>(1)
   const [aggregatePercent, setAggregatePercent] = useState<boolean>(false)
+  const [pageSize, setPageSize] = useState<number>(500)
+  const [pageIndex, setPageIndex] = useState<number>(0)
 
   const wordbagJson = useMemo(() => {
     const obj: Record<string, string[]> = {}
@@ -291,13 +425,28 @@ function App() {
     const reader = new FileReader()
     reader.onload = () => {
       const text = String(reader.result ?? '')
-      const parsed = parseCorpusText(text)
-      setCorpusUrns(parsed)
-      setCorpusMessage(
-        parsed.length
-          ? `Importerte ${parsed.length} URN-er.`
-          : 'Ingen URN-er funnet i filen.',
-      )
+      const csvParsed = parseCorpusCsv(text)
+      if (csvParsed) {
+        setCorpusUrns(csvParsed.urns)
+        setCorpusMetaById(csvParsed.metaById)
+        setCorpusMetaByUrn(csvParsed.metaByUrn)
+        const hasDhlabIds = Object.keys(csvParsed.metaById).length > 0
+        setCorpusMessage(
+          csvParsed.urns.length
+            ? hasDhlabIds
+              ? `Importerte ${csvParsed.urns.length} URN-er (CSV).`
+              : `Importerte ${csvParsed.urns.length} URN-er (CSV). Ingen dhlabid funnet.`
+            : 'Ingen URN-er funnet i CSV.',
+        )
+      } else {
+        const parsed = parseCorpusText(text)
+        setCorpusUrns(parsed)
+        setCorpusMessage(
+          parsed.length
+            ? `Importerte ${parsed.length} URN-er.`
+            : 'Ingen URN-er funnet i filen.',
+        )
+      }
     }
     reader.onerror = () => {
       setCorpusMessage('Kunne ikke lese filen.')
@@ -541,13 +690,15 @@ function App() {
         return direction * (a.total - b.total)
       }
       if (sortKey === 'title' || sortKey === 'authors') {
-        const aValue = metaLookup[a.id]?.[sortKey] ?? ''
-        const bValue = metaLookup[b.id]?.[sortKey] ?? ''
+        const aValue =
+          metaLookup[a.id]?.[sortKey] ?? corpusMetaByUrn[a.id]?.[sortKey] ?? ''
+        const bValue =
+          metaLookup[b.id]?.[sortKey] ?? corpusMetaByUrn[b.id]?.[sortKey] ?? ''
         return direction * aValue.localeCompare(bValue, 'nb')
       }
       if (sortKey === 'year') {
-        const aValue = Number(metaLookup[a.id]?.year ?? 0)
-        const bValue = Number(metaLookup[b.id]?.year ?? 0)
+        const aValue = Number(metaLookup[a.id]?.year ?? corpusMetaByUrn[a.id]?.year ?? 0)
+        const bValue = Number(metaLookup[b.id]?.year ?? corpusMetaByUrn[b.id]?.year ?? 0)
         return direction * (aValue - bValue)
       }
       if (topics.includes(sortKey)) {
@@ -572,6 +723,7 @@ function App() {
   }, [
     evaluateData,
     corpusMetaById,
+    corpusMetaByUrn,
     sortKey,
     sortDir,
     totalThreshold,
@@ -579,6 +731,10 @@ function App() {
     yearBinSize,
     aggregatePercent,
   ])
+
+  useEffect(() => {
+    setPageIndex(0)
+  }, [evaluateData, totalThreshold, sortKey, sortDir, aggregateByYear, yearBinSize, aggregatePercent])
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -591,15 +747,86 @@ function App() {
 
   const sortLabel = sortDir === 'asc' ? '↑' : '↓'
 
+  const chartSeries = useMemo(() => {
+    if (!evaluationTable || evaluationTable.mode !== 'topics') return null
+
+    const yearColumns = evaluationTable.columns.filter(
+      (column) => column.kind === 'count' && column.year,
+    )
+    if (!yearColumns.length) return null
+
+    const years = yearColumns.map((column) => column.year ?? column.label)
+    const topRows = [...evaluationTable.rows]
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5)
+
+    const series = topRows.map((row) => {
+      const values = yearColumns.map((column) => {
+        const raw = row.values[column.year ?? ''] ?? 0
+        if (aggregatePercent) {
+          const denom = evaluationTable.yearTotals?.get(column.year ?? '') ?? 0
+          return denom > 0 ? (raw / denom) * 100 : 0
+        }
+        return raw
+      })
+      return { id: row.id, values }
+    })
+
+    const maxValue = Math.max(
+      1,
+      ...series.flatMap((item) => item.values),
+    )
+    return { years, series, maxValue }
+  }, [evaluationTable, aggregatePercent])
+
+  const handleDownload = () => {
+    if (!evaluationTable) return
+    if (evaluationTable.mode === 'docs') {
+      const header = [
+        'dhlabid',
+        ...evaluationTable.columns.map((column) => column.label),
+        'sum',
+        'title',
+        'authors',
+        'year',
+      ]
+      const rows = evaluationTable.rows.map((row) => [
+        row.id,
+        ...evaluationTable.columns.map((column) => row.values?.[column.key] ?? 0),
+        row.total,
+        corpusMetaById[row.id]?.title ?? corpusMetaByUrn[row.id]?.title ?? '',
+        corpusMetaById[row.id]?.authors ?? corpusMetaByUrn[row.id]?.authors ?? '',
+        corpusMetaById[row.id]?.year ?? corpusMetaByUrn[row.id]?.year ?? '',
+      ])
+      downloadCsv('evaluering-per-bok.csv', [header, ...rows])
+      return
+    }
+
+    const header = ['vektor', ...evaluationTable.columns.map((column) => column.label), 'sum']
+    const rows = evaluationTable.rows.map((row) => [
+      row.id,
+      ...evaluationTable.columns.map((column) => {
+        if (column.kind === 'percent') {
+          const denom = evaluationTable.yearTotals?.get(column.year ?? '') ?? 0
+          const raw = row.values?.[column.year ?? ''] ?? 0
+          return denom > 0 ? ((raw / denom) * 100).toFixed(1) : '0.0'
+        }
+        return row.values?.[column.year ?? column.key] ?? 0
+      }),
+      aggregatePercent ? row.total.toFixed(1) : row.total,
+    ])
+    downloadCsv('evaluering-per-ar.csv', [header, ...rows])
+  }
+
   return (
     <div className="app">
       <header className="app-header">
-        <div>
+      <div>
           <h1>Ordsøk</h1>
           <p className="tagline">
             PWA for å bygge korpus og telle grupperte ord i NB dhlab.
           </p>
-        </div>
+      </div>
         <span className="status-pill">Beta</span>
       </header>
 
@@ -628,7 +855,7 @@ function App() {
             <span>&nbsp;</span>
             <button type="button" onClick={handleBuildCorpus}>
               Bygg korpus
-            </button>
+        </button>
           </div>
         </div>
 
@@ -736,7 +963,7 @@ function App() {
           ) : (
             <div className="empty">Ingen wordbags lagt til ennå.</div>
           )}
-        </div>
+      </div>
       </section>
 
       <section className="card">
@@ -806,6 +1033,64 @@ function App() {
                 <div className="table-meta">
                   Fant {evaluationTable.rows.length} rader på{' '}
                   {(evaluateDurationMs / 1000).toFixed(2)} sekunder
+                </div>
+              )}
+              <button type="button" className="button-secondary" onClick={handleDownload}>
+                Last ned CSV
+              </button>
+              {evaluationTable.mode === 'docs' && (
+                <div className="pager">
+                  <label className="field inline">
+                    <span>Vis</span>
+                    <select
+                      value={pageSize}
+                      onChange={(event) => {
+                        const next = Number(event.target.value)
+                        setPageSize(next)
+                        setPageIndex(0)
+                      }}
+                    >
+                      <option value={100}>100</option>
+                      <option value={500}>500</option>
+                      <option value={1000}>1000</option>
+                      <option value={5000}>5000</option>
+                      <option value={10000}>10000</option>
+                      <option value={0}>Alle</option>
+                    </select>
+                  </label>
+                  {pageSize > 0 && (
+                    <div className="pager-controls">
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        onClick={() => setPageIndex((prev) => Math.max(prev - 1, 0))}
+                        disabled={pageIndex === 0}
+                      >
+                        Forrige
+                      </button>
+                      <span>
+                        Side {pageIndex + 1} av{' '}
+                        {Math.max(1, Math.ceil(evaluationTable.rows.length / pageSize))}
+                      </span>
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        onClick={() =>
+                          setPageIndex((prev) =>
+                            Math.min(
+                              prev + 1,
+                              Math.ceil(evaluationTable.rows.length / pageSize) - 1,
+                            ),
+                          )
+                        }
+                        disabled={
+                          pageIndex >= Math.ceil(evaluationTable.rows.length / pageSize) - 1
+                        }
+                      >
+                        Neste
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -881,7 +1166,13 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                {evaluationTable.rows.map((row) => (
+                {(pageSize > 0 && evaluationTable.mode === 'docs'
+                  ? evaluationTable.rows.slice(
+                      pageIndex * pageSize,
+                      pageIndex * pageSize + pageSize,
+                    )
+                  : evaluationTable.rows
+                ).map((row) => (
                   <tr key={row.id}>
                     <td>{row.id}</td>
                     {evaluationTable.columns.map((column) => {
@@ -904,9 +1195,21 @@ function App() {
                     </td>
                     {evaluationTable.mode === 'docs' && (
                       <>
-                        <td>{corpusMetaById[row.id]?.title ?? '-'}</td>
-                        <td>{corpusMetaById[row.id]?.authors ?? '-'}</td>
-                        <td>{corpusMetaById[row.id]?.year ?? '-'}</td>
+                        <td>
+                          {corpusMetaById[row.id]?.title ??
+                            corpusMetaByUrn[row.id]?.title ??
+                            '-'}
+                        </td>
+                        <td>
+                          {corpusMetaById[row.id]?.authors ??
+                            corpusMetaByUrn[row.id]?.authors ??
+                            '-'}
+                        </td>
+                        <td>
+                          {corpusMetaById[row.id]?.year ??
+                            corpusMetaByUrn[row.id]?.year ??
+                            '-'}
+                        </td>
                       </>
                     )}
                   </tr>
@@ -914,6 +1217,57 @@ function App() {
                 </tbody>
               </table>
             </div>
+            {evaluationTable.mode === 'topics' && chartSeries && (
+              <div className="chart-card">
+                <div className="chart-header">
+                  <strong>
+                    {aggregatePercent ? 'Andel per år (topp 5 vektorer)' : 'Sum per år (topp 5 vektorer)'}
+                  </strong>
+                  <span>{chartSeries.years.join(' · ')}</span>
+                </div>
+                <svg viewBox="0 0 900 300" role="img">
+                  <rect x="50" y="20" width="820" height="220" fill="#f8fafc" />
+                  {chartSeries.years.map((year, index) => {
+                    const x = 50 + (820 / Math.max(1, chartSeries.years.length - 1)) * index
+                    return (
+                      <g key={year}>
+                        <line x1={x} y1={20} x2={x} y2={240} stroke="#e2e8f0" />
+                        <text x={x} y={265} textAnchor="middle" fontSize="12" fill="#64748b">
+                          {year}
+                        </text>
+                      </g>
+                    )
+                  })}
+                  {chartSeries.series.map((serie, idx) => {
+                    const points = serie.values.map((value, index) => {
+                      const x = 50 + (820 / Math.max(1, chartSeries.years.length - 1)) * index
+                      const y = 240 - (value / chartSeries.maxValue) * 200
+                      return `${x},${y}`
+                    })
+                    const colors = ['#2563eb', '#16a34a', '#f97316', '#a855f7', '#0ea5e9']
+                    return (
+                      <polyline
+                        key={serie.id}
+                        fill="none"
+                        stroke={colors[idx % colors.length]}
+                        strokeWidth="2"
+                        points={points.join(' ')}
+                      />
+                    )
+                  })}
+                </svg>
+                <div className="chart-legend">
+                  {chartSeries.series.map((serie, idx) => {
+                    const colors = ['#2563eb', '#16a34a', '#f97316', '#a855f7', '#0ea5e9']
+                    return (
+                      <span key={serie.id} style={{ color: colors[idx % colors.length] }}>
+                        {serie.id}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="placeholder">Resultattabell kommer</div>

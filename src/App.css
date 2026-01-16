@@ -260,6 +260,60 @@ tbody tr:nth-child(even) {
   cursor: pointer;
 }
 
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pager select {
+  border-radius: 10px;
+  border: 1px solid #cbd5f5;
+  padding: 0.4rem 0.6rem;
+  background: #ffffff;
+  font-size: 0.95rem;
+}
+
+.pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.chart-card {
+  margin-top: 1.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  background: #ffffff;
+}
+
+.chart-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: #475569;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.chart-card svg {
+  width: 100%;
+  height: auto;
+}
+
+.chart-legend {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-weight: 600;
+}
+
 .summary-row {
   display: flex;
   flex-wrap: wrap;
