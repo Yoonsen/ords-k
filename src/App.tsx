@@ -22,6 +22,13 @@ type TableRow = {
   total: number
 }
 
+type ColumnDef = {
+  key: string
+  label: string
+  kind: 'count' | 'percent'
+  year?: string
+}
+
 const MAX_CORPUS = 50000
 
 const parseWordList = (value: string) =>
@@ -451,7 +458,6 @@ function App() {
       }))
       const rowMap = new Map<string, TableRow>(topicRows.map((row) => [row.id, row]))
       const yearTotals = new Map<string, number>()
-      let grandTotal = 0
 
       rowsWithTotals.forEach((row) => {
         const label = getYearLabel(row.docId)
@@ -462,24 +468,25 @@ function App() {
           currentRow.values[label] = (currentRow.values[label] ?? 0) + increment
           currentRow.total += increment
           yearTotals.set(label, (yearTotals.get(label) ?? 0) + increment)
-          grandTotal += increment
         })
       })
 
-      const yearColumns = Array.from(yearBins.entries())
+      const yearLabels = Array.from(yearBins.entries())
         .sort((a, b) => a[1].sortValue - b[1].sortValue)
         .map(([label]) => label)
 
-      if (aggregatePercent) {
-        topicRows.forEach((row) => {
-          yearColumns.forEach((column) => {
-            const denom = yearTotals.get(column) ?? 0
-            const value = row.values[column] ?? 0
-            row.values[column] = denom > 0 ? (value / denom) * 100 : 0
+      const columnDefs: ColumnDef[] = []
+      yearLabels.forEach((label) => {
+        columnDefs.push({ key: `${label}__count`, label, kind: 'count', year: label })
+        if (aggregatePercent) {
+          columnDefs.push({
+            key: `${label}__percent`,
+            label: `${label} %`,
+            kind: 'percent',
+            year: label,
           })
-          row.total = grandTotal > 0 ? (row.total / grandTotal) * 100 : 0
-        })
-      }
+        }
+      })
 
       const sorted = [...topicRows].sort((a, b) => {
         const direction = sortDir === 'asc' ? 1 : -1
@@ -489,9 +496,17 @@ function App() {
         if (sortKey === 'total') {
           return direction * (a.total - b.total)
         }
-        if (yearColumns.includes(sortKey)) {
-          const aValue = a.values[sortKey] ?? 0
-          const bValue = b.values[sortKey] ?? 0
+        const column = columnDefs.find((def) => def.key === sortKey)
+        if (column?.kind === 'count') {
+          const aValue = a.values[column.year ?? ''] ?? 0
+          const bValue = b.values[column.year ?? ''] ?? 0
+          return direction * (aValue - bValue)
+        }
+        if (column?.kind === 'percent') {
+          const denomA = yearTotals.get(column.year ?? '') ?? 0
+          const denomB = yearTotals.get(column.year ?? '') ?? 0
+          const aValue = denomA > 0 ? (a.values[column.year ?? ''] ?? 0) / denomA : 0
+          const bValue = denomB > 0 ? (b.values[column.year ?? ''] ?? 0) / denomB : 0
           return direction * (aValue - bValue)
         }
         return 0
@@ -505,8 +520,9 @@ function App() {
       return {
         mode: 'topics',
         rows: filtered,
-        columns: yearColumns,
+        columns: columnDefs,
         totalRows: topicRows.length,
+        yearTotals,
       }
     }
 
@@ -548,7 +564,9 @@ function App() {
     return {
       mode: 'docs',
       rows: filtered,
-      columns: topics,
+      columns: topics.map(
+        (topic) => ({ key: topic, label: topic, kind: 'count' } as ColumnDef),
+      ),
       totalRows: docRows.length,
     }
   }, [
@@ -810,13 +828,13 @@ function App() {
                     </button>
                   </th>
                   {evaluationTable.columns.map((column) => (
-                    <th key={column}>
+                    <th key={column.key}>
                       <button
                         type="button"
                         className="table-sort"
-                        onClick={() => handleSort(column)}
+                        onClick={() => handleSort(column.key)}
                       >
-                        {column} {sortKey === column && <span>{sortLabel}</span>}
+                        {column.label} {sortKey === column.key && <span>{sortLabel}</span>}
                       </button>
                     </th>
                   ))}
@@ -866,13 +884,19 @@ function App() {
                 {evaluationTable.rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.id}</td>
-                    {evaluationTable.columns.map((column) => (
-                      <td key={`${row.id}-${column}`}>
-                        {aggregateByYear && aggregatePercent
-                          ? `${(row.values?.[column] ?? 0).toFixed(1)}%`
-                          : row.values?.[column] ?? 0}
-                      </td>
-                    ))}
+                    {evaluationTable.columns.map((column) => {
+                      const value = row.values?.[column.year ?? column.key] ?? 0
+                      if (column.kind === 'percent' && evaluationTable.mode === 'topics') {
+                        const denom = evaluationTable.yearTotals?.get(column.year ?? '') ?? 0
+                        const percent = denom > 0 ? (value / denom) * 100 : 0
+                        return (
+                          <td key={`${row.id}-${column.key}`}>
+                            {percent.toFixed(1)}%
+                          </td>
+                        )
+                      }
+                      return <td key={`${row.id}-${column.key}`}>{value}</td>
+                    })}
                     <td>
                       {aggregateByYear && aggregatePercent
                         ? `${row.total.toFixed(1)}%`
