@@ -16,6 +16,12 @@ type CorpusMeta = {
   year?: string
 }
 
+type TableRow = {
+  id: string
+  values: Record<string, number>
+  total: number
+}
+
 const MAX_CORPUS = 50000
 
 const parseWordList = (value: string) =>
@@ -214,6 +220,7 @@ function App() {
   const [evaluateDurationMs, setEvaluateDurationMs] = useState<number | null>(null)
   const [aggregateByYear, setAggregateByYear] = useState<boolean>(false)
   const [yearBinSize, setYearBinSize] = useState<number>(1)
+  const [aggregatePercent, setAggregatePercent] = useState<boolean>(false)
 
   const wordbagJson = useMemo(() => {
     const obj: Record<string, string[]> = {}
@@ -420,91 +427,130 @@ function App() {
     })
 
     const metaLookup = corpusMetaById
-    const baseRows = aggregateByYear
-      ? (() => {
-          const binSize = Math.max(1, Math.floor(yearBinSize || 1))
-          const grouped = new Map<
-            string,
-            {
-              label: string
-              yearSortValue: number
-              total: number
-              topics: Record<string, number>
-              docCount: number
-            }
-          >()
-          rowsWithTotals.forEach((row) => {
-            const yearValue = Number(metaLookup[row.docId]?.year)
-            const hasYear = !Number.isNaN(yearValue) && Number.isFinite(yearValue)
-            const start = hasYear ? Math.floor(yearValue / binSize) * binSize : -1
-            const label = hasYear
-              ? binSize > 1
-                ? `${start}-${start + binSize - 1}`
-                : `${start}`
-              : 'Ukjent'
-            const existing = grouped.get(label)
-            if (existing) {
-              existing.total += row.total
-              existing.docCount += 1
-              Object.entries(row.topics || {}).forEach(([key, value]) => {
-                existing.topics[key] = (existing.topics[key] ?? 0) + (value ?? 0)
-              })
-            } else {
-              grouped.set(label, {
-                label,
-                yearSortValue: hasYear ? start : -1,
-                total: row.total,
-                topics: { ...(row.topics || {}) },
-                docCount: 1,
-              })
-            }
-          })
-          return Array.from(grouped.values()).map((row) => ({
-            docId: row.label,
-            topics: row.topics,
-            total: row.total,
-            docCount: row.docCount,
-            yearSortValue: row.yearSortValue,
-          }))
-        })()
-      : rowsWithTotals.map((row) => ({
-          docId: row.docId,
-          topics: row.topics,
-          total: row.total,
-          docCount: 1,
-          yearSortValue: Number(metaLookup[row.docId]?.year ?? -1),
-        }))
+    const binSize = Math.max(1, Math.floor(yearBinSize || 1))
+    const yearBins = new Map<string, { sortValue: number }>()
 
-    const sorted = [...baseRows].sort((a, b) => {
+    const getYearLabel = (docId: string) => {
+      const yearValue = Number(metaLookup[docId]?.year)
+      const hasYear = !Number.isNaN(yearValue) && Number.isFinite(yearValue)
+      if (!hasYear) {
+        yearBins.set('Ukjent', { sortValue: -1 })
+        return 'Ukjent'
+      }
+      const start = Math.floor(yearValue / binSize) * binSize
+      const label = binSize > 1 ? `${start}-${start + binSize - 1}` : `${start}`
+      yearBins.set(label, { sortValue: start })
+      return label
+    }
+
+    if (aggregateByYear) {
+      const topicRows: TableRow[] = topics.map((topic) => ({
+        id: topic,
+        values: {},
+        total: 0,
+      }))
+      const rowMap = new Map<string, TableRow>(topicRows.map((row) => [row.id, row]))
+      const yearTotals = new Map<string, number>()
+      let grandTotal = 0
+
+      rowsWithTotals.forEach((row) => {
+        const label = getYearLabel(row.docId)
+        Object.entries(row.topics || {}).forEach(([topic, value]) => {
+          const currentRow = rowMap.get(topic)
+          if (!currentRow) return
+          const increment = typeof value === 'number' ? value : 0
+          currentRow.values[label] = (currentRow.values[label] ?? 0) + increment
+          currentRow.total += increment
+          yearTotals.set(label, (yearTotals.get(label) ?? 0) + increment)
+          grandTotal += increment
+        })
+      })
+
+      const yearColumns = Array.from(yearBins.entries())
+        .sort((a, b) => a[1].sortValue - b[1].sortValue)
+        .map(([label]) => label)
+
+      if (aggregatePercent) {
+        topicRows.forEach((row) => {
+          yearColumns.forEach((column) => {
+            const denom = yearTotals.get(column) ?? 0
+            const value = row.values[column] ?? 0
+            row.values[column] = denom > 0 ? (value / denom) * 100 : 0
+          })
+          row.total = grandTotal > 0 ? (row.total / grandTotal) * 100 : 0
+        })
+      }
+
+      const sorted = [...topicRows].sort((a, b) => {
+        const direction = sortDir === 'asc' ? 1 : -1
+        if (sortKey === 'row') {
+          return direction * a.id.localeCompare(b.id, 'nb')
+        }
+        if (sortKey === 'total') {
+          return direction * (a.total - b.total)
+        }
+        if (yearColumns.includes(sortKey)) {
+          const aValue = a.values[sortKey] ?? 0
+          const bValue = b.values[sortKey] ?? 0
+          return direction * (aValue - bValue)
+        }
+        return 0
+      })
+
+      const filtered =
+        totalThreshold > 0
+          ? sorted.filter((row) => row.total >= totalThreshold)
+          : sorted
+
+      return {
+        mode: 'topics',
+        rows: filtered,
+        columns: yearColumns,
+        totalRows: topicRows.length,
+      }
+    }
+
+    const docRows: TableRow[] = rowsWithTotals.map((row) => ({
+      id: row.docId,
+      values: row.topics || {},
+      total: row.total,
+    }))
+
+    const sorted = [...docRows].sort((a, b) => {
       const direction = sortDir === 'asc' ? 1 : -1
-      if (sortKey === 'dhlabid') {
-        return direction * a.docId.localeCompare(b.docId, 'nb')
+      if (sortKey === 'dhlabid' || sortKey === 'row') {
+        return direction * a.id.localeCompare(b.id, 'nb')
       }
       if (sortKey === 'total') {
         return direction * (a.total - b.total)
       }
       if (sortKey === 'title' || sortKey === 'authors') {
-        const aValue = metaLookup[a.docId]?.[sortKey] ?? ''
-        const bValue = metaLookup[b.docId]?.[sortKey] ?? ''
+        const aValue = metaLookup[a.id]?.[sortKey] ?? ''
+        const bValue = metaLookup[b.id]?.[sortKey] ?? ''
         return direction * aValue.localeCompare(bValue, 'nb')
       }
       if (sortKey === 'year') {
-        return direction * (a.yearSortValue - b.yearSortValue)
+        const aValue = Number(metaLookup[a.id]?.year ?? 0)
+        const bValue = Number(metaLookup[b.id]?.year ?? 0)
+        return direction * (aValue - bValue)
       }
       if (topics.includes(sortKey)) {
-        const aValue = a.topics?.[sortKey] ?? 0
-        const bValue = b.topics?.[sortKey] ?? 0
+        const aValue = a.values?.[sortKey] ?? 0
+        const bValue = b.values?.[sortKey] ?? 0
         return direction * (aValue - bValue)
       }
       return 0
     })
 
     const filtered =
-      totalThreshold > 0
-        ? sorted.filter((row) => row.total >= totalThreshold)
-        : sorted
+      totalThreshold > 0 ? sorted.filter((row) => row.total >= totalThreshold) : sorted
 
-    return { rows: filtered, topics, totalRows: baseRows.length }
+    return {
+      mode: 'docs',
+      rows: filtered,
+      columns: topics,
+      totalRows: docRows.length,
+    }
   }, [
     evaluateData,
     corpusMetaById,
@@ -513,6 +559,7 @@ function App() {
     totalThreshold,
     aggregateByYear,
     yearBinSize,
+    aggregatePercent,
   ])
 
   const handleSort = (key: string) => {
@@ -705,7 +752,11 @@ function App() {
               <button
                 type="button"
                 className="button-secondary"
-                onClick={() => setAggregateByYear((prev) => !prev)}
+                onClick={() => {
+                  setAggregateByYear((prev) => !prev)
+                  setSortKey('total')
+                  setSortDir('desc')
+                }}
               >
                 {aggregateByYear ? 'Vis per bok' : 'Aggreger per år'}
               </button>
@@ -717,6 +768,16 @@ function App() {
                     min={1}
                     value={yearBinSize}
                     onChange={(event) => setYearBinSize(Number(event.target.value) || 1)}
+                  />
+                </label>
+              )}
+              {aggregateByYear && (
+                <label className="field inline">
+                  <span>Andel (%)</span>
+                  <input
+                    type="checkbox"
+                    checked={aggregatePercent}
+                    onChange={(event) => setAggregatePercent(event.target.checked)}
                   />
                 </label>
               )}
@@ -734,29 +795,31 @@ function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>
+                  <th>
+                    <button
+                      type="button"
+                      className="table-sort"
+                      onClick={() =>
+                        handleSort(evaluationTable.mode === 'topics' ? 'row' : 'dhlabid')
+                      }
+                    >
+                      {evaluationTable.mode === 'topics' ? 'Kategori' : 'Dhlab ID'}{' '}
+                      {sortKey === (evaluationTable.mode === 'topics' ? 'row' : 'dhlabid') && (
+                        <span>{sortLabel}</span>
+                      )}
+                    </button>
+                  </th>
+                  {evaluationTable.columns.map((column) => (
+                    <th key={column}>
                       <button
                         type="button"
                         className="table-sort"
-                        onClick={() => handleSort(aggregateByYear ? 'year' : 'dhlabid')}
+                        onClick={() => handleSort(column)}
                       >
-                        {aggregateByYear ? 'År' : 'Dhlab ID'}{' '}
-                        {sortKey === (aggregateByYear ? 'year' : 'dhlabid') && (
-                          <span>{sortLabel}</span>
-                        )}
+                        {column} {sortKey === column && <span>{sortLabel}</span>}
                       </button>
                     </th>
-                    {evaluationTable.topics.map((topic) => (
-                      <th key={topic}>
-                        <button
-                          type="button"
-                          className="table-sort"
-                          onClick={() => handleSort(topic)}
-                        >
-                          {topic} {sortKey === topic && <span>{sortLabel}</span>}
-                        </button>
-                      </th>
-                    ))}
+                  ))}
                     <th>
                       <button
                         type="button"
@@ -766,9 +829,7 @@ function App() {
                         Sum {sortKey === 'total' && <span>{sortLabel}</span>}
                       </button>
                     </th>
-                    {aggregateByYear ? (
-                      <th>Antall bøker</th>
-                    ) : (
+                  {evaluationTable.mode === 'docs' && (
                       <>
                         <th>
                           <button
@@ -802,24 +863,30 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {evaluationTable.rows.map((row) => (
-                    <tr key={row.docId}>
-                      <td>{row.docId}</td>
-                      {evaluationTable.topics.map((topic) => (
-                        <td key={`${row.docId}-${topic}`}>{row.topics?.[topic] ?? 0}</td>
-                      ))}
-                      <td>{row.total}</td>
-                      {aggregateByYear ? (
-                        <td>{row.docCount}</td>
-                      ) : (
-                        <>
-                          <td>{corpusMetaById[row.docId]?.title ?? '-'}</td>
-                          <td>{corpusMetaById[row.docId]?.authors ?? '-'}</td>
-                          <td>{corpusMetaById[row.docId]?.year ?? '-'}</td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
+                {evaluationTable.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.id}</td>
+                    {evaluationTable.columns.map((column) => (
+                      <td key={`${row.id}-${column}`}>
+                        {aggregateByYear && aggregatePercent
+                          ? `${(row.values?.[column] ?? 0).toFixed(1)}%`
+                          : row.values?.[column] ?? 0}
+                      </td>
+                    ))}
+                    <td>
+                      {aggregateByYear && aggregatePercent
+                        ? `${row.total.toFixed(1)}%`
+                        : row.total}
+                    </td>
+                    {evaluationTable.mode === 'docs' && (
+                      <>
+                        <td>{corpusMetaById[row.id]?.title ?? '-'}</td>
+                        <td>{corpusMetaById[row.id]?.authors ?? '-'}</td>
+                        <td>{corpusMetaById[row.id]?.year ?? '-'}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
                 </tbody>
               </table>
             </div>
