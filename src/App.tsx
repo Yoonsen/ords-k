@@ -1340,6 +1340,21 @@ function App() {
           </details>
         )}
       </section>
+
+      <section className="card">
+        <h2>Om appen</h2>
+        <p>
+          Ordsøk lar deg definere “wordbags” (tematiske ordlister) og telle dem mot
+          et korpus i NB dhlab. Det er et vektorsøk uten komprimerte vektorer –
+          hvert dokument blir evaluert direkte i et høydimensjonalt, spars
+          matriserom, hvor hver ordliste er en akse. Resultatet er en tabell med
+          summer per dokument eller aggregert per år.
+        </p>
+        <p>
+          Dette kan brukes til å undersøke stilnormer, temaendringer over tid,
+          eller hvordan bestemte begreper opptrer i ulike deler av et korpus.
+        </p>
+      </section>
     </div>
   )
 }
