@@ -363,6 +363,9 @@ function App() {
   const [pageSize, setPageSize] = useState<number>(500)
   const [pageIndex, setPageIndex] = useState<number>(0)
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
+  const [chartWidth, setChartWidth] = useState<number>(() =>
+    typeof window === 'undefined' ? 900 : window.innerWidth,
+  )
 
   const wordbagJson = useMemo(() => {
     const obj: Record<string, string[]> = {}
@@ -739,6 +742,12 @@ function App() {
     setHiddenSeries(new Set())
   }, [evaluateData, aggregateByYear, yearBinSize, aggregatePercent])
 
+  useEffect(() => {
+    const handler = () => setChartWidth(window.innerWidth)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+
   const handleSort = (key: string) => {
     if (sortKey === key) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
@@ -759,9 +768,9 @@ function App() {
     if (!yearColumns.length) return null
 
     const years = yearColumns.map((column) => column.year ?? column.label)
-    const topRows = [...evaluationTable.rows]
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
+    const sortedRows = [...evaluationTable.rows].sort((a, b) => b.total - a.total)
+    const visibleRows = sortedRows.filter((row) => !hiddenSeries.has(row.id))
+    const topRows = visibleRows.slice(0, 5)
 
     const series = topRows.map((row) => {
       const values = yearColumns.map((column) => {
@@ -779,8 +788,13 @@ function App() {
       1,
       ...series.flatMap((item) => item.values),
     )
-    return { years, series, maxValue }
-  }, [evaluationTable, aggregatePercent])
+    const maxTicks = chartWidth < 600 ? 4 : chartWidth < 900 ? 6 : 8
+    const tickStep = Math.max(1, Math.ceil(years.length / maxTicks))
+    const tickIndices = years
+      .map((_, index) => index)
+      .filter((index) => index % tickStep === 0 || index === years.length - 1)
+    return { years, series, maxValue, tickIndices }
+  }, [evaluationTable, aggregatePercent, hiddenSeries, chartWidth])
 
   const handleDownload = () => {
     if (!evaluationTable) return
@@ -1233,12 +1247,15 @@ function App() {
                   <rect x="50" y="20" width="820" height="220" fill="#f8fafc" />
                   {chartSeries.years.map((year, index) => {
                     const x = 50 + (820 / Math.max(1, chartSeries.years.length - 1)) * index
+                    const showTick = chartSeries.tickIndices.includes(index)
                     return (
                       <g key={year}>
                         <line x1={x} y1={20} x2={x} y2={240} stroke="#e2e8f0" />
-                        <text x={x} y={265} textAnchor="middle" fontSize="12" fill="#64748b">
-                          {year}
-                        </text>
+                        {showTick && (
+                          <text x={x} y={265} textAnchor="middle" fontSize="12" fill="#64748b">
+                            {year}
+                          </text>
+                        )}
                       </g>
                     )
                   })}
