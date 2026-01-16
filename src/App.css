@@ -249,6 +249,17 @@ tbody tr:nth-child(even) {
   font-size: 0.9rem;
 }
 
+.button-secondary {
+  border-radius: 10px;
+  border: 1px solid #cbd5f5;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .summary-row {
   display: flex;
   flex-wrap: wrap;

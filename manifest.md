@@ -46,9 +46,22 @@ The app runs on GitHub Pages and is built into the `/docs` folder.
 **Result:** corpus list including document IDs / URNs.
 
 ## Data Model (Client)
-- **Corpus:** list of URNs (max 50,000)
-- **Wordbags:** `Record<string, string[]>`
-- **Evaluation result:** table keyed by document id (URN or dhlab id) with topic counts
+- **Corpus:** list of URNs (max 50,000), plus corpus metadata keyed by `dhlabid`
+- **Wordbags:** `Record<string, string[]>` (built from editable rows)
+- **Evaluation result:** table keyed by `dhlabid` with topic counts
+
+## UI Capabilities (Current)
+- Build corpus from a single free-text field; supports `field: value` pairs.
+- Import corpus URNs from CSV/TXT.
+- Editable wordbag rows (name + words), add/remove rows.
+- Import/export wordbags JSON.
+- Evaluation results table with:
+  - per-topic counts
+  - total sum column
+  - metadata columns (title, authors, year)
+  - column sorting
+  - minimum total threshold and row count info
+  - evaluation timing
 
 ## PWA / Deployment
 - **Hosting:** GitHub Pages
@@ -61,7 +74,7 @@ The app runs on GitHub Pages and is built into the `/docs` folder.
 - Evaluation response fits browser memory for 50k documents.
 
 ## Open Questions
-- Exact shape of `evaluate` response (URN vs dhlab id keys).
 - Authentication or rate limits?
 - Preferred UI language: Norwegian (Bokmål) by default?
+- Need CSV/XLSX export for evaluation results?
 

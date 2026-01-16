@@ -212,6 +212,8 @@ function App() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [totalThreshold, setTotalThreshold] = useState<number>(0)
   const [evaluateDurationMs, setEvaluateDurationMs] = useState<number | null>(null)
+  const [aggregateByYear, setAggregateByYear] = useState<boolean>(false)
+  const [yearBinSize, setYearBinSize] = useState<number>(1)
 
   const wordbagJson = useMemo(() => {
     const obj: Record<string, string[]> = {}
@@ -418,7 +420,62 @@ function App() {
     })
 
     const metaLookup = corpusMetaById
-    const sorted = [...rowsWithTotals].sort((a, b) => {
+    const baseRows = aggregateByYear
+      ? (() => {
+          const binSize = Math.max(1, Math.floor(yearBinSize || 1))
+          const grouped = new Map<
+            string,
+            {
+              label: string
+              yearSortValue: number
+              total: number
+              topics: Record<string, number>
+              docCount: number
+            }
+          >()
+          rowsWithTotals.forEach((row) => {
+            const yearValue = Number(metaLookup[row.docId]?.year)
+            const hasYear = !Number.isNaN(yearValue) && Number.isFinite(yearValue)
+            const start = hasYear ? Math.floor(yearValue / binSize) * binSize : -1
+            const label = hasYear
+              ? binSize > 1
+                ? `${start}-${start + binSize - 1}`
+                : `${start}`
+              : 'Ukjent'
+            const existing = grouped.get(label)
+            if (existing) {
+              existing.total += row.total
+              existing.docCount += 1
+              Object.entries(row.topics || {}).forEach(([key, value]) => {
+                existing.topics[key] = (existing.topics[key] ?? 0) + (value ?? 0)
+              })
+            } else {
+              grouped.set(label, {
+                label,
+                yearSortValue: hasYear ? start : -1,
+                total: row.total,
+                topics: { ...(row.topics || {}) },
+                docCount: 1,
+              })
+            }
+          })
+          return Array.from(grouped.values()).map((row) => ({
+            docId: row.label,
+            topics: row.topics,
+            total: row.total,
+            docCount: row.docCount,
+            yearSortValue: row.yearSortValue,
+          }))
+        })()
+      : rowsWithTotals.map((row) => ({
+          docId: row.docId,
+          topics: row.topics,
+          total: row.total,
+          docCount: 1,
+          yearSortValue: Number(metaLookup[row.docId]?.year ?? -1),
+        }))
+
+    const sorted = [...baseRows].sort((a, b) => {
       const direction = sortDir === 'asc' ? 1 : -1
       if (sortKey === 'dhlabid') {
         return direction * a.docId.localeCompare(b.docId, 'nb')
@@ -432,9 +489,7 @@ function App() {
         return direction * aValue.localeCompare(bValue, 'nb')
       }
       if (sortKey === 'year') {
-        const aValue = Number(metaLookup[a.docId]?.year ?? 0)
-        const bValue = Number(metaLookup[b.docId]?.year ?? 0)
-        return direction * (aValue - bValue)
+        return direction * (a.yearSortValue - b.yearSortValue)
       }
       if (topics.includes(sortKey)) {
         const aValue = a.topics?.[sortKey] ?? 0
@@ -449,8 +504,16 @@ function App() {
         ? sorted.filter((row) => row.total >= totalThreshold)
         : sorted
 
-    return { rows: filtered, topics, totalRows: rowsWithTotals.length }
-  }, [evaluateData, corpusMetaById, sortKey, sortDir, totalThreshold])
+    return { rows: filtered, topics, totalRows: baseRows.length }
+  }, [
+    evaluateData,
+    corpusMetaById,
+    sortKey,
+    sortDir,
+    totalThreshold,
+    aggregateByYear,
+    yearBinSize,
+  ])
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -639,6 +702,24 @@ function App() {
                   onChange={(event) => setTotalThreshold(Number(event.target.value) || 0)}
                 />
               </label>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => setAggregateByYear((prev) => !prev)}
+              >
+                {aggregateByYear ? 'Vis per bok' : 'Aggreger per år'}
+              </button>
+              {aggregateByYear && (
+                <label className="field inline">
+                  <span>Årsintervall</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={yearBinSize}
+                    onChange={(event) => setYearBinSize(Number(event.target.value) || 1)}
+                  />
+                </label>
+              )}
               <div className="table-meta">
                 Viser {evaluationTable.rows.length} av {evaluationTable.totalRows} rader
               </div>
@@ -657,9 +738,12 @@ function App() {
                       <button
                         type="button"
                         className="table-sort"
-                        onClick={() => handleSort('dhlabid')}
+                        onClick={() => handleSort(aggregateByYear ? 'year' : 'dhlabid')}
                       >
-                        Dhlab ID {sortKey === 'dhlabid' && <span>{sortLabel}</span>}
+                        {aggregateByYear ? 'År' : 'Dhlab ID'}{' '}
+                        {sortKey === (aggregateByYear ? 'year' : 'dhlabid') && (
+                          <span>{sortLabel}</span>
+                        )}
                       </button>
                     </th>
                     {evaluationTable.topics.map((topic) => (
@@ -682,33 +766,39 @@ function App() {
                         Sum {sortKey === 'total' && <span>{sortLabel}</span>}
                       </button>
                     </th>
-                    <th>
-                      <button
-                        type="button"
-                        className="table-sort"
-                        onClick={() => handleSort('title')}
-                      >
-                        Tittel {sortKey === 'title' && <span>{sortLabel}</span>}
-                      </button>
-                    </th>
-                    <th>
-                      <button
-                        type="button"
-                        className="table-sort"
-                        onClick={() => handleSort('authors')}
-                      >
-                        Forfatter {sortKey === 'authors' && <span>{sortLabel}</span>}
-                      </button>
-                    </th>
-                    <th>
-                      <button
-                        type="button"
-                        className="table-sort"
-                        onClick={() => handleSort('year')}
-                      >
-                        År {sortKey === 'year' && <span>{sortLabel}</span>}
-                      </button>
-                    </th>
+                    {aggregateByYear ? (
+                      <th>Antall bøker</th>
+                    ) : (
+                      <>
+                        <th>
+                          <button
+                            type="button"
+                            className="table-sort"
+                            onClick={() => handleSort('title')}
+                          >
+                            Tittel {sortKey === 'title' && <span>{sortLabel}</span>}
+                          </button>
+                        </th>
+                        <th>
+                          <button
+                            type="button"
+                            className="table-sort"
+                            onClick={() => handleSort('authors')}
+                          >
+                            Forfatter {sortKey === 'authors' && <span>{sortLabel}</span>}
+                          </button>
+                        </th>
+                        <th>
+                          <button
+                            type="button"
+                            className="table-sort"
+                            onClick={() => handleSort('year')}
+                          >
+                            År {sortKey === 'year' && <span>{sortLabel}</span>}
+                          </button>
+                        </th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -719,9 +809,15 @@ function App() {
                         <td key={`${row.docId}-${topic}`}>{row.topics?.[topic] ?? 0}</td>
                       ))}
                       <td>{row.total}</td>
-                      <td>{corpusMetaById[row.docId]?.title ?? '-'}</td>
-                      <td>{corpusMetaById[row.docId]?.authors ?? '-'}</td>
-                      <td>{corpusMetaById[row.docId]?.year ?? '-'}</td>
+                      {aggregateByYear ? (
+                        <td>{row.docCount}</td>
+                      ) : (
+                        <>
+                          <td>{corpusMetaById[row.docId]?.title ?? '-'}</td>
+                          <td>{corpusMetaById[row.docId]?.authors ?? '-'}</td>
+                          <td>{corpusMetaById[row.docId]?.year ?? '-'}</td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
