@@ -926,11 +926,19 @@ function App() {
         </p>
 
         <div className="actions-row">
-          <button type="button" onClick={addWordbag}>
+          <button type="button" className="button-primary" onClick={addWordbag}>
             Ny wordbag
           </button>
           <div className="actions-secondary">
-            <label className="file-button">
+            <label className="file-button icon-button">
+              <span className="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path
+                    d="M12 4l4.5 4.5h-3v7h-3v-7h-3L12 4zM5 18h14v2H5v-2z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </span>
               Last opp JSON
               <input
                 type="file"
@@ -938,7 +946,20 @@ function App() {
                 onChange={(event) => importWordbags(event.target.files?.[0])}
               />
             </label>
-            <button type="button" onClick={downloadWordbags} disabled={!wordbags.length}>
+            <button
+              type="button"
+              className="button-secondary icon-button"
+              onClick={downloadWordbags}
+              disabled={!wordbags.length}
+            >
+              <span className="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path
+                    d="M12 20l-4.5-4.5h3v-7h3v7h3L12 20zM5 4h14v2H5V4z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </span>
               Last ned JSON
             </button>
           </div>
