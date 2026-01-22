@@ -1062,12 +1062,6 @@ function App() {
               </button>
             </div>
           </div>
-          <div className="field">
-            <span>Status</span>
-            <div className="status-box">
-              {corpusMessage || 'Ingen import gjennomført ennå.'}
-            </div>
-          </div>
         </div>
 
         {corpusApiStatus && (
@@ -1086,7 +1080,10 @@ function App() {
         <div className="summary-row">
           <div>
             <strong>Aktiv korpus</strong>
-            <span>{corpusUrns.length} URN-er</span>
+            <span>
+              {corpusUrns.length} URN-er
+              {corpusMessage ? ` · ${corpusMessage}` : ''}
+            </span>
           </div>
           <div>
             <strong>Fil</strong>
