@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
 import './App.css'
 
 type Wordbag = {
@@ -168,7 +167,8 @@ const parseCorpusCsv = (text: string) => {
   return parseCorpusRows(rows)
 }
 
-const parseCorpusExcel = (buffer: ArrayBuffer) => {
+const parseCorpusExcel = async (buffer: ArrayBuffer) => {
+  const XLSX = await import('xlsx')
   const workbook = XLSX.read(buffer, { type: 'array' })
   const sheetName = workbook.SheetNames[0]
   if (!sheetName) return null
@@ -450,22 +450,27 @@ function App() {
     reader.onload = () => {
       if (isExcel) {
         const buffer = reader.result as ArrayBuffer
-        const excelParsed = parseCorpusExcel(buffer)
-        if (excelParsed) {
-          setCorpusUrns(excelParsed.urns)
-          setCorpusMetaById(excelParsed.metaById)
-          setCorpusMetaByUrn(excelParsed.metaByUrn)
-          const hasDhlabIds = Object.keys(excelParsed.metaById).length > 0
-          setCorpusMessage(
-            excelParsed.urns.length
-              ? hasDhlabIds
-                ? `Importerte ${excelParsed.urns.length} URN-er (Excel).`
-                : `Importerte ${excelParsed.urns.length} URN-er (Excel). Ingen dhlabid funnet.`
-              : 'Ingen URN-er funnet i Excel.',
-          )
-        } else {
-          setCorpusMessage('Kunne ikke lese Excel-filen.')
-        }
+        parseCorpusExcel(buffer)
+          .then((excelParsed) => {
+            if (excelParsed) {
+              setCorpusUrns(excelParsed.urns)
+              setCorpusMetaById(excelParsed.metaById)
+              setCorpusMetaByUrn(excelParsed.metaByUrn)
+              const hasDhlabIds = Object.keys(excelParsed.metaById).length > 0
+              setCorpusMessage(
+                excelParsed.urns.length
+                  ? hasDhlabIds
+                    ? `Importerte ${excelParsed.urns.length} URN-er (Excel).`
+                    : `Importerte ${excelParsed.urns.length} URN-er (Excel). Ingen dhlabid funnet.`
+                  : 'Ingen URN-er funnet i Excel.',
+              )
+            } else {
+              setCorpusMessage('Kunne ikke lese Excel-filen.')
+            }
+          })
+          .catch(() => {
+            setCorpusMessage('Kunne ikke lese Excel-filen.')
+          })
         return
       }
 
@@ -964,7 +969,7 @@ function App() {
       </section>
 
       <section className="card">
-        <h2>2. Lag wordbags</h2>
+        <h2>2. Lag ordgrupper (clustre)</h2>
         <p>
           Legg til tema og ordlister (separert med komma eller linjeskift). Du kan
           også importere eller laste ned definisjonene som JSON.
@@ -972,7 +977,7 @@ function App() {
 
         <div className="actions-row">
           <button type="button" className="button-primary" onClick={addWordbag}>
-            Ny wordbag
+            Ny ordgruppe
           </button>
           <div className="actions-secondary">
             <label className="file-button icon-button">
@@ -984,7 +989,7 @@ function App() {
                   />
                 </svg>
               </span>
-              Last opp JSON
+              Last opp definisjoner
               <input
                 type="file"
                 accept="application/json"
@@ -1005,7 +1010,7 @@ function App() {
                   />
                 </svg>
               </span>
-              Last ned JSON
+              Last ned definisjoner
             </button>
           </div>
         </div>
