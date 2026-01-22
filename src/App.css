@@ -264,6 +264,11 @@ tbody tr:nth-child(even) {
   background: #1e3a8a;
 }
 
+.button-compact {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.9rem;
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;

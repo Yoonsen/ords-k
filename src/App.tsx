@@ -224,8 +224,27 @@ const parseBuildQuery = (input: string) => {
     'order_by',
   ])
 
-  const tokens = trimmed.split(/[,;\n]+/g).map((token) => token.trim())
+  const doctypeAliases: Record<string, string> = {
+    bok: 'digibok',
+    bøker: 'digibok',
+    avis: 'digavis',
+    aviser: 'digavis',
+  }
+
+  const normalizeDoctype = (value: string) => {
+    const lower = value.toLowerCase()
+    if (doctypeAliases[lower]) return doctypeAliases[lower]
+    return value
+  }
+
+  const tokens = trimmed
+    .split(/[,;\n]+/g)
+    .flatMap((chunk) => chunk.trim().split(/\s+(?=\w+\s*[:=])/g))
+    .map((token) => token.trim())
+    .filter(Boolean)
+
   const params: Record<string, string | number> = {}
+  let foundExplicit = false
 
   tokens.forEach((token) => {
     const match = token.match(/^([a-zA-Z_]+)\s*[:=]\s*(.+)$/)
@@ -233,6 +252,7 @@ const parseBuildQuery = (input: string) => {
     const key = match[1].toLowerCase()
     const value = match[2].trim()
     if (!allowedKeys.has(key)) return
+    foundExplicit = true
 
     if (
       key === 'from_year' ||
@@ -247,8 +267,47 @@ const parseBuildQuery = (input: string) => {
         return
       }
     }
+
+    if (key === 'doctype') {
+      params[key] = normalizeDoctype(value)
+      return
+    }
+
     params[key] = value
   })
+
+  if (Object.keys(params).length) {
+    return params
+  }
+
+  const naturalMatch = trimmed.match(/\b(?:fra|from)\s+(\d{4})\b/i)
+  if (naturalMatch) {
+    params.from_year = Number(naturalMatch[1])
+  }
+  const toMatch = trimmed.match(/\b(?:til|to)\s+(\d{4})\b/i)
+  if (toMatch) {
+    params.to_year = Number(toMatch[1])
+  }
+
+  const yearOnly = trimmed.match(/^\d{4}$/)
+  if (yearOnly && !foundExplicit) {
+    params.from_year = Number(yearOnly[0])
+  }
+
+  const yearRange = trimmed.match(/\b(\d{4})\s*-\s*(\d{4})\b/)
+  if (yearRange) {
+    params.from_year = Number(yearRange[1])
+    params.to_year = Number(yearRange[2])
+  }
+
+  const lower = trimmed.toLowerCase()
+  if (!params.doctype && /\b(bok|bøker|avis|aviser)\b/.test(lower)) {
+    if (/\b(avis|aviser)\b/.test(lower)) {
+      params.doctype = 'digavis'
+    } else {
+      params.doctype = 'digibok'
+    }
+  }
 
   if (Object.keys(params).length) {
     return params
@@ -911,8 +970,8 @@ function App() {
         <div className="grid">
           <label className="field">
             <span>Metadata / søk</span>
-            <input
-              type="text"
+            <textarea
+              rows={3}
               placeholder="freetext eller felt: verdi (author: Ibsen, from_year: 1880)"
               value={buildQuery}
               onChange={(event) => setBuildQuery(event.target.value)}
@@ -920,7 +979,7 @@ function App() {
           </label>
           <div className="field actions">
             <span>&nbsp;</span>
-            <button type="button" onClick={handleBuildCorpus}>
+            <button type="button" className="button-compact" onClick={handleBuildCorpus}>
               Bygg korpus
         </button>
           </div>
