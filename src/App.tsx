@@ -288,6 +288,10 @@ const parseBuildQuery = (input: string) => {
   if (toMatch) {
     params.to_year = Number(toMatch[1])
   }
+  const limitMatch = trimmed.match(/\b(?:limit|lim)\s+(\d+)\b/i)
+  if (limitMatch) {
+    params.limit = Number(limitMatch[1])
+  }
 
   const yearOnly = trimmed.match(/^\d{4}$/)
   if (yearOnly && !foundExplicit) {
