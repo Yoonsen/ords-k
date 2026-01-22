@@ -1,5 +1,10 @@
 # Architecture — Ordsøk PWA
 
+## Regen Brief
+Input: `manifest.md` + `architecture.md` + `quest.md`  
+Output: a working PWA in `/docs` with the described features and API wiring.  
+Constraints: no backend, NB dhlab APIs only, GitHub Pages hosting.
+
 ## Overview
 Client-only PWA built with Vite + React (TypeScript) and hosted on GitHub Pages.
 All data is fetched directly from the NB dhlab API. No backend service.
@@ -47,8 +52,8 @@ All data is fetched directly from the NB dhlab API. No backend service.
 - `corpusMetaByUrn: Record<urn, { title, authors, year, dhlabid }>`
 - `wordbags: { name, words[] }[]`
 - `evaluateData: Record<dhlabid, Record<topic, count>>`
- - `tableState: { sortKey, sortDir, totalThreshold, pageSize, pageIndex }`
- - `aggregationState: { aggregateByYear, yearBinSize, aggregatePercent }`
+- `tableState: { sortKey, sortDir, totalThreshold, pageSize, pageIndex }`
+- `aggregationState: { aggregateByYear, yearBinSize, aggregatePercent }`
 
 ## Parsing Notes
 - `build_corpus` response may arrive in columnar form:

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import './App.css'
 
 type Wordbag = {
@@ -94,52 +95,37 @@ const detectDelimiter = (line: string) => {
   return best
 }
 
-const parseCorpusCsv = (text: string) => {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0)
-  if (!lines.length) return null
-
-  const delimiter = detectDelimiter(lines[0])
-  const header = parseDelimitedLine(lines[0], delimiter).map((value) => value.toLowerCase())
-  const indexOf = (name: string) => header.findIndex((value) => value === name)
-  const indexOfAny = (names: string[]) =>
-    names.reduce((found, name) => (found === -1 ? indexOf(name) : found), -1)
-
-  const urnIndex = indexOfAny(['urn'])
-  let dhlabidIndex = indexOfAny(['dhlabid', 'dhlab_id'])
-  const titleIndex = indexOf('title')
-  const authorsIndex = indexOf('authors')
-  const yearIndex = indexOf('year')
-
-  if (dhlabidIndex === -1) {
-    const indexCandidates = ['', 'index', 'unnamed: 0']
-    dhlabidIndex = indexOfAny(indexCandidates)
-  }
-
-  if (urnIndex === -1 && dhlabidIndex === -1) return null
+const parseCorpusRows = (rows: Array<Record<string, unknown>>) => {
+  if (!rows.length) return null
 
   const urns: string[] = []
   const metaById: Record<string, CorpusMeta> = {}
   const metaByUrn: Record<string, CorpusMeta> = {}
 
-  for (let i = 1; i < lines.length; i += 1) {
-    const row = parseDelimitedLine(lines[i], delimiter)
-    if (!row.length) continue
-    const urn = row[urnIndex] ?? ''
-    const dhlabid = row[dhlabidIndex] ?? ''
-    const title = row[titleIndex] ?? ''
-    const authors = row[authorsIndex] ?? ''
-    const year = row[yearIndex] ?? ''
+  rows.forEach((row) => {
+    const urn = row.urn ?? row.URN ?? row.Urn ?? ''
+    const dhlabid =
+      row.dhlabid ??
+      row.dhlab_id ??
+      row.dhlabId ??
+      row[''] ??
+      row.index ??
+      row['Unnamed: 0'] ??
+      ''
+    const title = row.title ?? ''
+    const authors = row.authors ?? ''
+    const year = row.year ?? ''
 
-    const cleanedUrn = urn.trim()
-    const cleanedId = dhlabid.trim()
+    const cleanedUrn = typeof urn === 'string' ? urn.trim() : String(urn).trim()
+    const cleanedId = typeof dhlabid === 'string' ? dhlabid.trim() : String(dhlabid).trim()
 
     if (cleanedUrn) {
       urns.push(cleanedUrn)
       metaByUrn[cleanedUrn] = {
         urn: cleanedUrn,
-        title: title?.trim() || undefined,
-        authors: authors?.trim() || undefined,
-        year: year?.trim() || undefined,
+        title: title ? String(title).trim() : undefined,
+        authors: authors ? String(authors).trim() : undefined,
+        year: year ? String(year).trim() : undefined,
         dhlabid: cleanedId || undefined,
       }
     }
@@ -148,18 +134,47 @@ const parseCorpusCsv = (text: string) => {
       metaById[cleanedId] = {
         dhlabid: cleanedId,
         urn: cleanedUrn || undefined,
-        title: title?.trim() || undefined,
-        authors: authors?.trim() || undefined,
-        year: year?.trim() || undefined,
+        title: title ? String(title).trim() : undefined,
+        authors: authors ? String(authors).trim() : undefined,
+        year: year ? String(year).trim() : undefined,
       }
     }
-  }
+  })
 
   return {
     urns: Array.from(new Set(urns)).slice(0, MAX_CORPUS),
     metaById,
     metaByUrn,
   }
+}
+
+const parseCorpusCsv = (text: string) => {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0)
+  if (!lines.length) return null
+
+  const delimiter = detectDelimiter(lines[0])
+  const header = parseDelimitedLine(lines[0], delimiter).map((value) => value.toLowerCase())
+  const rows: Array<Record<string, string>> = []
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const values = parseDelimitedLine(lines[i], delimiter)
+    const row: Record<string, string> = {}
+    header.forEach((key, index) => {
+      row[key] = values[index] ?? ''
+    })
+    rows.push(row)
+  }
+
+  return parseCorpusRows(rows)
+}
+
+const parseCorpusExcel = (buffer: ArrayBuffer) => {
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  const sheetName = workbook.SheetNames[0]
+  if (!sheetName) return null
+  const worksheet = workbook.Sheets[sheetName]
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' })
+  return parseCorpusRows(rows)
 }
 
 const escapeCsvValue = (value: string | number | null | undefined) => {
@@ -421,15 +436,41 @@ function App() {
     setCorpusMessage('')
     setCorpusFileName(file.name)
 
-    if (!file.name.toLowerCase().endsWith('.csv') && !file.name.toLowerCase().endsWith('.txt')) {
-      setCorpusMessage('Støtter foreløpig kun CSV/TXT for import av URN-lister.')
+    const lowerName = file.name.toLowerCase()
+    const isCsv = lowerName.endsWith('.csv')
+    const isTxt = lowerName.endsWith('.txt')
+    const isExcel = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')
+
+    if (!isCsv && !isTxt && !isExcel) {
+      setCorpusMessage('Støtter CSV, TXT og Excel (XLSX/XLS) for import.')
       return
     }
 
     const reader = new FileReader()
     reader.onload = () => {
+      if (isExcel) {
+        const buffer = reader.result as ArrayBuffer
+        const excelParsed = parseCorpusExcel(buffer)
+        if (excelParsed) {
+          setCorpusUrns(excelParsed.urns)
+          setCorpusMetaById(excelParsed.metaById)
+          setCorpusMetaByUrn(excelParsed.metaByUrn)
+          const hasDhlabIds = Object.keys(excelParsed.metaById).length > 0
+          setCorpusMessage(
+            excelParsed.urns.length
+              ? hasDhlabIds
+                ? `Importerte ${excelParsed.urns.length} URN-er (Excel).`
+                : `Importerte ${excelParsed.urns.length} URN-er (Excel). Ingen dhlabid funnet.`
+              : 'Ingen URN-er funnet i Excel.',
+          )
+        } else {
+          setCorpusMessage('Kunne ikke lese Excel-filen.')
+        }
+        return
+      }
+
       const text = String(reader.result ?? '')
-      const csvParsed = parseCorpusCsv(text)
+      const csvParsed = isCsv ? parseCorpusCsv(text) : null
       if (csvParsed) {
         setCorpusUrns(csvParsed.urns)
         setCorpusMetaById(csvParsed.metaById)
@@ -455,7 +496,11 @@ function App() {
     reader.onerror = () => {
       setCorpusMessage('Kunne ikke lese filen.')
     }
-    reader.readAsText(file)
+    if (isExcel) {
+      reader.readAsArrayBuffer(file)
+    } else {
+      reader.readAsText(file)
+    }
   }
 
   const addWordbag = () => {
@@ -881,7 +926,7 @@ function App() {
             <span>Importer URN-liste</span>
             <input
               type="file"
-              accept=".csv,.txt"
+              accept=".csv,.txt,.xlsx,.xls"
               onChange={(event) => handleCorpusFile(event.target.files?.[0])}
             />
           </label>
