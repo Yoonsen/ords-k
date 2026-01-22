@@ -24,7 +24,7 @@ All data is fetched directly from the NB dhlab API. No backend service.
      - `corpusMetaById` (keyed by `dhlabid` for table join)
      - `corpusMetaByUrn` (fallback when CSV provides only URN)
 2. **Wordbags**
-   - Editable rows: name + words list.
+   - Editable rows: name + words list (UI label: "ordgrupper").
    - Export/Import as JSON.
    - Normalized into `Record<string, string[]>`.
 3. **Evaluate**
@@ -46,6 +46,12 @@ All data is fetched directly from the NB dhlab API. No backend service.
     - `urns: string[]`
     - `wordbags: Record<string, string[]>`
 
+## Corpus Import/Export
+- Upload supports CSV/TXT/Excel (XLSX/XLS).
+- Excel is parsed via `xlsx` loaded dynamically (lazy-loaded on demand).
+- CSV accepts headers: `urn`, `dhlabid` or index/`Unnamed: 0`, `title`, `authors`, `year`.
+- Download outputs CSV with `urn,dhlabid,title,authors,year` when available.
+
 ## Key Client Structures
 - `corpusUrns: string[]`
 - `corpusMetaById: Record<dhlabid, { title, authors, year, urn }>`
@@ -54,18 +60,36 @@ All data is fetched directly from the NB dhlab API. No backend service.
 - `evaluateData: Record<dhlabid, Record<topic, count>>`
 - `tableState: { sortKey, sortDir, totalThreshold, pageSize, pageIndex }`
 - `aggregationState: { aggregateByYear, yearBinSize, aggregatePercent }`
+ - `chartState: { hiddenSeries, chartWidth }`
 
 ## Parsing Notes
 - `build_corpus` response may arrive in columnar form:
   - `urn: { "0": "URN:...", ... }`, `dhlabid: { "0": 123, ... }`, etc.
 - Client extracts URNs and metadata from either columnar or row formats.
 - CSV upload supports `urn`, `dhlabid` (or index/Unnamed: 0), `title`, `authors`, `year`.
+- Free-text parsing supports:
+  - `fra 1990`, `til 2000`, `1990-2000`
+  - `limit 20`
+  - `bok/bøker` → `doctype: digibok`, `avis/aviser` → `doctype: digavis`
+  - `tema bil` / `subject bil` maps to `subject`
 
 ## Performance Considerations
 - Sorting is done client-side on full dataset (`O(n log n)`).
 - Filtering by minimum total happens after sorting.
 - Pagination is used for per-document view to reduce DOM load.
+- Excel parsing is lazy-loaded to keep initial bundle small.
 
 ## Deployment
 - GitHub Pages serves `/docs` (build output).
 - `vite.config.ts` uses `base: './'` for relative asset paths.
+
+## Rebuild Checklist
+1. Scaffold Vite + React + TypeScript app.
+2. Set build output to `/docs` and `base: './'`.
+3. Implement three UI sections: build corpus, ordgrupper, evaluate.
+4. Wire API calls to `build_corpus` and `evaluate`.
+5. Implement CSV/TXT/Excel import and corpus download.
+6. Implement ordgruppe editor + JSON import/export.
+7. Render evaluation table with sorting, filtering, paging.
+8. Add aggregated per-year view, % toggle, and chart with toggles.
+9. Add PWA assets (`manifest.webmanifest`, `sw.js`).
