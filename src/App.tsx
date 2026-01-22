@@ -293,6 +293,22 @@ const parseBuildQuery = (input: string) => {
     params.limit = Number(limitMatch[1])
   }
 
+  const subjectMatch = trimmed.match(/\b(?:tema|subject|subjects)\s+(.+)/i)
+  if (subjectMatch && !params.subject) {
+    const raw = subjectMatch[1]
+      .split(/\b(?:limit|fra|til|from|to|bok|bøker|avis|aviser)\b/i)[0]
+      .trim()
+    const cleaned = raw.replace(/^[,.;]+|[,.;]+$/g, '').trim()
+    if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+      params.subject = cleaned.slice(1, -1)
+    } else {
+      const parts = cleaned.split(/[,;]+/g).map((part) => part.trim()).filter(Boolean)
+      if (parts.length) {
+        params.subject = parts.join(', ')
+      }
+    }
+  }
+
   const yearOnly = trimmed.match(/^\d{4}$/)
   if (yearOnly && !foundExplicit) {
     params.from_year = Number(yearOnly[0])
@@ -948,6 +964,25 @@ function App() {
     downloadCsv('evaluering-per-ar.csv', [header, ...rows])
   }
 
+  const handleDownloadCorpus = () => {
+    if (!corpusUrns.length) return
+    const hasMeta = Object.keys(corpusMetaById).length > 0 || Object.keys(corpusMetaByUrn).length > 0
+    const header = ['urn', 'dhlabid', 'title', 'authors', 'year']
+    const rows = corpusUrns.map((urn) => {
+      const meta = corpusMetaByUrn[urn]
+      const byId = meta?.dhlabid ? corpusMetaById[meta.dhlabid] : undefined
+      const resolved = byId ?? meta
+      return [
+        urn,
+        resolved?.dhlabid ?? '',
+        resolved?.title ?? '',
+        resolved?.authors ?? '',
+        resolved?.year ?? '',
+      ]
+    })
+    downloadCsv(hasMeta ? 'korpus.csv' : 'korpus-urn.csv', [header, ...rows])
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -1027,6 +1062,17 @@ function App() {
           <div>
             <strong>Fil</strong>
             <span>{corpusFileName ?? 'Ikke lastet opp'}</span>
+          </div>
+          <div>
+            <strong>Nedlasting</strong>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={handleDownloadCorpus}
+              disabled={!corpusUrns.length}
+            >
+              Last ned korpus
+            </button>
           </div>
         </div>
       </section>
