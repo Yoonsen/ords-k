@@ -1025,14 +1025,43 @@ function App() {
         </div>
 
         <div className="grid">
-          <label className="field">
-            <span>Importer URN-liste</span>
-            <input
-              type="file"
-              accept=".csv,.txt,.xlsx,.xls"
-              onChange={(event) => handleCorpusFile(event.target.files?.[0])}
-            />
-          </label>
+          <div className="field">
+            <span>Importer korpus</span>
+            <div className="actions-secondary">
+              <label className="file-button icon-button">
+                <span className="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path
+                      d="M12 4l4.5 4.5h-3v7h-3v-7h-3L12 4zM5 18h14v2H5v-2z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                Last opp korpus
+                <input
+                  type="file"
+                  accept=".csv,.txt,.xlsx,.xls"
+                  onChange={(event) => handleCorpusFile(event.target.files?.[0])}
+                />
+              </label>
+              <button
+                type="button"
+                className="button-secondary icon-button"
+                onClick={handleDownloadCorpus}
+                disabled={!corpusUrns.length}
+              >
+                <span className="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path
+                      d="M12 20l-4.5-4.5h3v-7h3v7h3L12 20zM5 4h14v2H5V4z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                Last ned korpus
+              </button>
+            </div>
+          </div>
           <div className="field">
             <span>Status</span>
             <div className="status-box">
@@ -1062,17 +1091,6 @@ function App() {
           <div>
             <strong>Fil</strong>
             <span>{corpusFileName ?? 'Ikke lastet opp'}</span>
-          </div>
-          <div>
-            <strong>Nedlasting</strong>
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={handleDownloadCorpus}
-              disabled={!corpusUrns.length}
-            >
-              Last ned korpus
-            </button>
           </div>
         </div>
       </section>
